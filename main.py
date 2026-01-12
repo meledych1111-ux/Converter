@@ -1,4 +1,4 @@
-# main.py — DocLens Lite: простой, быстрый, рабочий
+# main.py — DocLens Lite: полная версия без ошибок
 import os
 import tempfile
 from flask import Flask, request, send_file, render_template_string
@@ -60,16 +60,44 @@ def index():
 <!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DocLens</title>
-<style>body{font-family:system-ui;padding:20px;background:#f9f9f9}
-input,button{width:100%;padding:14px;margin:8px 0;border:1px solid #ccc;border-radius:10px}
-button{background:#1e88e5;color:white;font-weight:bold}
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 20px;
+    background: #f9f9f9;
+    margin: 0;
+}
+h2 {
+    color: #1e88e5;
+    text-align: center;
+}
+input, button {
+    width: 100%;
+    padding: 14px;
+    margin: 8px 0;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    box-sizing: border-box;
+}
+button {
+    background: #1e88e5;
+    color: white;
+    font-weight: bold;
+    border: none;
+}
+.buttons {
+    display: grid;
+    gap: 8px;
+}
 </style>
-<h2>📄 DocLens</h2>
+<h2>📄 DocLens Lite</h2>
 <form method=post enctype=multipart/form-data>
   <input type=file name=file accept=".pdf,.jpg,.jpeg,.png" required>
-  <button name=format value=docx>📥 Word</button>
-  <button name=format value=xlsx>📊 Excel</button>
-  <button name=format value=pdf>🖨 PDF</button>
+  <div class="buttons">
+    <button type=submit name=format value=docx>📥 Word (.docx)</button>
+    <button type=submit name=format value=xlsx>📊 Excel (.xlsx)</button>
+    <button type=submit name=format value=pdf>🖨 PDF</button>
+  </div>
 </form>
 ''')
 
@@ -77,9 +105,10 @@ button{background:#1e88e5;color:white;font-weight:bold}
 def process():
     file = request.files['file']
     fmt = request.form['format']
-    is_pdf = file.filename.lower().endswith('.pdf')
+    original_filename = file.filename
+    is_pdf = original_filename.lower().endswith('.pdf')
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(original_filename)[1]) as tmp:
         file.save(tmp.name)
         input_path = tmp.name
 
@@ -108,65 +137,85 @@ def process():
         # Экспорт
         if fmt == 'xlsx':
             if not has_tables:
-                return '<h3 style="color:red">❌ Таблицы не найдены</h3>'
+                return '<h3 style="color:red; text-align:center;">❌ Таблицы не найдены</h3>'
             writer = pd.ExcelWriter('/tmp/out.xlsx', engine='openpyxl')
-            sheet = 1
+            sheet_index = 1
             for typ, data in results:
                 if typ == 'table':
-                    for df in 
-                        df.to_excel(writer, sheet_name=f'Sheet{sheet}', index=False)
-                        sheet += 1
+                    for df in data:
+                        sheet_name = f'Sheet{sheet_index}'
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_index += 1
             writer.close()
             output_path = '/tmp/out.xlsx'
             download_name = 'tables.xlsx'
 
         elif fmt == 'docx':
             doc = Document()
-            doc.add_heading('Результат', 0)
+            doc.add_heading('Результат обработки', 0)
             for i, (typ, data) in enumerate(results, 1):
-                doc.add_heading(f'Стр. {i}', 2)
+                doc.add_heading(f'Страница {i}', level=2)
                 if typ == 'table':
-                    for df in 
-                        t = doc.add_table(df.shape[0], df.shape[1])
+                    for df in data:
+                        t = doc.add_table(rows=df.shape[0], cols=df.shape[1])
                         t.style = 'Table Grid'
                         for r in range(df.shape[0]):
                             for c in range(df.shape[1]):
-                                t.cell(r, c).text = str(df.iloc[r, c])[:500]
+                                cell_text = str(df.iloc[r, c])[:500]
+                                t.cell(r, c).text = cell_text
                 else:
-                    doc.add_paragraph(data)
+                    doc.add_paragraph(data if data.strip() else "[Текст не распознан]")
             output_path = '/tmp/out.docx'
             doc.save(output_path)
             download_name = 'result.docx'
 
         else:  # PDF
-            html = '<h1>Результат</h1>'
+            html = '''
+            <!DOCTYPE html>
+            <html><head><meta charset="utf-8">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                h1 { color: #333; }
+                h2 { margin-top: 30px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+                table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+                th, td { border: 1px solid #999; padding: 6px; text-align: left; }
+                pre { white-space: pre-wrap; background: #f9f9f9; padding: 10px; border-radius: 4px; }
+            </style>
+            </head><body>
+            <h1>Результат обработки</h1>
+            '''
             for i, (typ, data) in enumerate(results, 1):
-                html += f'<h2>Стр. {i}</h2>'
+                html += f'<h2>Страница {i}</h2>'
                 if typ == 'table':
-                    for df in 
-                        html += '<table border="1" style="border-collapse:collapse">'
+                    for df in data:
+                        html += '<table>'
                         for _, row in df.iterrows():
                             html += '<tr>' + ''.join(f'<td>{cell}</td>' for cell in row) + '</tr>'
                         html += '</table>'
                 else:
-                    html += f'<pre>{data}</pre>'
+                    escaped = (data or "[Текст не распознан]").replace("&", "&amp;").replace("<", "&lt;")
+                    html += f'<pre>{escaped}</pre>'
+            html += '</body></html>'
             output_path = '/tmp/out.pdf'
             HTML(string=html).write_pdf(output_path)
             download_name = 'result.pdf'
 
         # Логируем
-        session.add(Log(filename=file.filename, result='table' if has_tables else 'text', format=fmt))
+        session.add(Log(filename=original_filename, result='table' if has_tables else 'text', format=fmt))
         session.commit()
 
         return send_file(output_path, as_attachment=True, download_name=download_name)
 
     except Exception as e:
-        return f'<h3 style="color:red">Ошибка: {str(e)[:200]}</h3>'
+        return f'<h3 style="color:red; text-align:center;">Ошибка: {str(e)[:200]}</h3>'
     finally:
         session.close()
         for p in [input_path, output_path]:
             if p and os.path.exists(p):
-                os.remove(p)
+                try:
+                    os.remove(p)
+                except:
+                    pass
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000)
